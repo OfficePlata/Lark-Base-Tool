@@ -55,11 +55,11 @@ export async function onRequestPost({ request, env }) {
             baseName: baseName,
             baseUrl: newBaseUrl,
             details: results
-        }), { headers: { 'Content-Type': 'application/json' } });
+        }, null, 2), { headers: { 'Content-Type': 'application/json' } }); // 整形して表示
 
     } catch (error) {
         console.error("Error details:", error);
-        return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify({ error: error.message }, null, 2), { status: 500, headers: { 'Content-Type': 'application/json' } }); // 整形して表示
     }
 }
 
