@@ -219,5 +219,130 @@ async function generateSchemaFromAI(userPrompt, apiKey) {
             let rawText = result.candidates[0].content.parts[0].text;
             let jsonText = null;
 
-            // Strategy 1: Find JSON within markdown ```json ... 
+            // Strategy 1: Find JSON within markdown ```json ... ```
+            const jsonMatch = rawText.match(/```json\s*([\s\S]*?)\s*```/);
+            if (jsonMatch && jsonMatch[1]) {
+                jsonText = jsonMatch[1];
+            } else {
+                // Strategy 2: Find the largest possible JSON object within the text
+                const firstBrace = rawText.indexOf('{');
+                const lastBrace = rawText.lastIndexOf('}');
+                if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                    jsonText = rawText.substring(firstBrace, lastBrace + 1);
+                }
+            }
+            
+            if (!jsonText) {
+                 throw new Error("AIの応答から有効なJSONオブジェクトを見つけられませんでした。");
+            }
+            
+            // JSONとしてパースを試みる
+            return JSON.parse(jsonText); // 成功したら即座に結果を返す
+
+        } catch (e) {
+            console.error(`Attempt ${attempt} failed:`, e);
+            lastError = e;
+            await new Promise(res => setTimeout(res, 1000 * attempt)); // リトライ間隔を延長
+        }
+    }
+    
+    // 3回試行しても失敗した場合、最後のエラーを投げる
+    console.error("すべてのリトライに失敗しました。");
+    throw new Error(`AIの応答処理に失敗しました: ${lastError.message}。しばらくしてから再試行するか、指示内容を少し変えてみてください。`);
+}
+
+
+async function apiCall(token, path, options = {}) {
+    const { method = 'GET', body = null } = options;
+    const response = await fetch(`${LARK_API_URL}${path}`, {
+        method,
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', },
+        body: body ? JSON.stringify(body) : null,
+    });
+    const data = await response.json();
+    if (data.code !== 0) {
+        throw new Error(`Lark API Error: ${data.msg} (Code: ${data.code}, Path: ${path})`);
+    }
+    return data;
+}
+
+async function getTenantAccessToken(env) {
+    const response = await fetch(`${LARK_API_URL}/auth/v3/tenant_access_token/internal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ app_id: env.LARK_APP_ID, app_secret: env.LARK_APP_SECRET }),
+    });
+    const data = await response.json();
+    if (data.code !== 0) throw new Error('Failed to get tenant access token');
+    return data.tenant_access_token;
+}
+
+async function createBaseApp(token, baseName) {
+    return apiCall(token, `/base/v1/apps`, {
+        method: 'POST',
+        body: { name: baseName },
+    });
+}
+
+async function addSampleRecords(token, appToken, tableId, fields, count) {
+    const records = [];
+    for (let i = 0; i < count; i++) {
+        const recordFields = {};
+        for (const field of fields) {
+            const dummyData = generateDummyData(field.type, field.options || {}, i);
+            if (dummyData !== null) recordFields[field.name] = dummyData;
+        }
+        if (Object.keys(recordFields).length > 0) records.push({ fields: recordFields });
+    }
+    if (records.length === 0) return { data: { records: [] } };
+    return apiCall(token, `/base/v1/apps/${appToken}/tables/${tableId}/records/batch_create`, {
+        method: 'POST',
+        body: { records },
+    });
+}
+
+function getFieldProperty(type, options) {
+    const getOptions = (key = 'オプション') => {
+        const opts = options[key];
+        if (typeof opts === 'string' && opts) {
+            return opts.split(',').map(o => ({ name: o.trim() }));
+        }
+        return [];
+    };
+    const map = {
+        'text': { type: 1 },
+        'number': { type: 2, property: { formatter: '0' } },
+        'single_select': { type: 3, property: { options: getOptions() } },
+        'multi_select': { type: 4, property: { options: getOptions() } },
+        'date': { type: 5, property: { date_formatter: 'yyyy/MM/dd' } },
+        'date_time': { type: 5, property: { date_formatter: 'yyyy/MM/dd HH:mm' } },
+        'checkbox': { type: 7 },
+        'member': { type: 11, property: { multiple: false } },
+        'phone': { type: 13 },
+        'url': { type: 15 },
+        'email': { type: 23 },
+        'currency': { type: 25, property: { currency_code: 'JPY', formatter: '#,##0' } },
+        'rating': { type: 26, property: { symbol: 'star' } },
+    };
+    return map[type.toLowerCase()];
+}
+
+function generateDummyData(type, options, index) {
+    const i = index + 1;
+    const selectOptions = (options['オプション'] || '').split(',');
+    switch (type.toLowerCase()) {
+        case 'text': return `サンプル ${i}`;
+        case 'email': return `sample${i}@example.com`;
+        case 'phone': return `090-1234-567${index % 10}`;
+        case 'number': return 123 * i;
+        case 'currency': return 5000 * i;
+        case 'single_select': return selectOptions.length > 0 && selectOptions[0] ? selectOptions[index % selectOptions.length].trim() : null;
+        case 'date': return Date.now();
+        case 'date_time': return Date.now();
+        case 'checkbox': return i % 2 === 0;
+        case 'url': return `https://example.com/item/${i}`;
+        case 'rating': return (index % 5) + 1;
+        default: return null;
+    }
+}
 
