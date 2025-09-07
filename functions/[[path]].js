@@ -21,7 +21,7 @@ export async function onRequest({ request, env }) {
 
 
 /**
- * APIのロジックを処理する関数 (以前のコード)
+ * APIのロジックを処理する関数
  */
 async function handleApiPost({ request, env }) {
      try {
@@ -120,7 +120,7 @@ function serveHtml() {
             
             <div>
                 <label for="prompt">指示内容:</label>
-                <textarea id="prompt" placeholder="例: 営業チームで使う顧客管理と商談管理のBaseを作って。\n顧客ランク（A,B,C）と担当者、受注確度（高,中,低）を管理できるようにしたい。"></textarea>
+                <textarea id="prompt" placeholder="例: 営業チームで使う顧客管理と商談管理のBaseを作って。\\n顧客ランク（A,B,C）と担当者、受注確度（高,中,低）を管理できるようにしたい。"></textarea>
             </div>
             
             <button id="submit-button" onclick="createBase()">AIにBaseの作成を依頼</button>
@@ -200,34 +200,7 @@ async function generateSchemaFromAI(userPrompt, apiKey) {
         "generationConfig": {
             "response_mime_type": "application/json",
             "response_schema": {
-                "type": "OBJECT",
-                "properties": {
-                    "baseName": { "type": "STRING" },
-                    "tables": {
-                        "type": "ARRAY",
-                        "items": {
-                            "type": "OBJECT",
-                            "properties": {
-                                "name": { "type": "STRING" },
-                                "fields": {
-                                    "type": "ARRAY",
-                                    "items": {
-                                        "type": "OBJECT",
-                                        "properties": {
-                                            "name": { "type": "STRING" },
-                                            "type": { "type": "STRING" },
-                                            "options": {
-                                                "type": "OBJECT",
-                                                "properties": { "オプション": { "type": "STRING" } }
-                                            }
-                                        }
-                                    }
-                                },
-                                "sampleDataCount": { "type": "NUMBER" }
-                            }
-                        }
-                    }
-                }
+                "type": "OBJECT", "properties": { "baseName": { "type": "STRING" }, "tables": { "type": "ARRAY", "items": { "type": "OBJECT", "properties": { "name": { "type": "STRING" }, "fields": { "type": "ARRAY", "items": { "type": "OBJECT", "properties": { "name": { "type": "STRING" }, "type": { "type": "STRING" }, "options": { "type": "OBJECT", "properties": { "オプション": { "type": "STRING" } } } } } }, "sampleDataCount": { "type": "NUMBER" } } } } }
             }
         }
     };
@@ -239,7 +212,22 @@ async function generateSchemaFromAI(userPrompt, apiKey) {
         console.error("Gemini API Error:", JSON.stringify(result, null, 2));
         throw new Error("AIによるテーブル構成の生成に失敗しました。APIエラーを確認してください。");
     }
-    return JSON.parse(result.candidates[0].content.parts[0].text);
+    
+    // AIからの応答を整形する処理を追加
+    let jsonText = result.candidates[0].content.parts[0].text;
+    const jsonMatch = jsonText.match(/```json\s*([\s\S]*?)\s*```|({[\s\S]*})/);
+    if (!jsonMatch) {
+        console.error("AIの応答から有効なJSONを見つけられませんでした:", jsonText);
+        throw new Error("AIが有効なJSON形式で応答しませんでした。");
+    }
+    jsonText = jsonMatch[1] || jsonMatch[2];
+
+    try {
+        return JSON.parse(jsonText);
+    } catch (e) {
+        console.error("整形後のJSONの解析に失敗しました:", jsonText, e);
+        throw new Error("AIが返したJSONデータの解析に失敗しました。");
+    }
 }
 
 
@@ -330,3 +318,4 @@ function generateDummyData(type, options, index) {
         default: return null;
     }
 }
+
