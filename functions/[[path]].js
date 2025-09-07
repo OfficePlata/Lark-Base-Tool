@@ -218,13 +218,17 @@ async function generateSchemaFromAI(userPrompt, apiKey) {
                 continue;
             }
             
-            let jsonText = result.candidates[0].content.parts[0].text;
+            let rawText = result.candidates[0].content.parts[0].text;
 
-            // AIが稀に返すマークダウン形式をクリーンアップ
-            const jsonMatch = jsonText.match(/```json\s*([\s\S]*?)\s*```|({[\s\S]*})/);
-            if (jsonMatch) {
-                 jsonText = jsonMatch[1] || jsonMatch[2];
+            // AIが返すテキストからJSONオブジェクトをより堅牢に抽出する
+            const firstBrace = rawText.indexOf('{');
+            const lastBrace = rawText.lastIndexOf('}');
+
+            if (firstBrace === -1 || lastBrace === -1 || lastBrace < firstBrace) {
+                 throw new Error("AIの応答から有効なJSONオブジェクトを見つけられませんでした。");
             }
+            
+            const jsonText = rawText.substring(firstBrace, lastBrace + 1);
             
             // JSONとしてパースを試みる
             return JSON.parse(jsonText); // 成功したら即座に結果を返す
@@ -238,7 +242,7 @@ async function generateSchemaFromAI(userPrompt, apiKey) {
     
     // 3回試行しても失敗した場合、最後のエラーを投げる
     console.error("すべてのリトライに失敗しました。");
-    throw new Error(`AIの応答処理に失敗しました: ${lastError.message}`);
+    throw new Error(`AIの応答処理に失敗しました: ${lastError.message}。しばらくしてから再試行するか、指示内容を少し変えてみてください。`);
 }
 
 
