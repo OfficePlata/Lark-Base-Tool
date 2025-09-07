@@ -186,13 +186,12 @@ async function generateSchemaFromAI(userPrompt, apiKey) {
     if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
 
-    const systemPrompt = `あなたはLark Baseのデータベース設計の専門家です。ユーザーからの曖昧な要求を解釈し、Lark Baseの名前とテーブル構成をJSON形式で出力します。
-- ユーザーの要求に最も適したBaseの名前（baseName）を日本語で提案してください。
+    const systemPrompt = `あなたはLark Baseのデータベース設計を行うAPIです。ユーザーの要求を解釈し、指定されたJSON形式のデータのみを返却します。解説や挨拶など、JSON以外のテキストは一切含めないでください。
+- ユーザーの要求に最も適したBaseの名前（baseName）を提案してください。
 - 日本語のフィールド名を提案してください。
 - ユーザーの要求に最適なLarkのフィールドタイプを選択してください。
 - single_selectやmulti_selectには、適切な選択肢（オプション）を3〜5個提案してください。
-- サンプルデータ数は、3から5の間で適切に設定してください。
-- 必ず指定されたJSONスキーマに従って、JSONオブジェクトのみを出力してください。他のテキストは含めないでください。`;
+- サンプルデータ数は、3から5の間で適切に設定してください。`;
 
     const payload = {
         "system_instruction": { "parts": { "text": systemPrompt } },
@@ -204,30 +203,42 @@ async function generateSchemaFromAI(userPrompt, apiKey) {
             }
         }
     };
+    
+    let lastError = null;
+    // AIの応答が不安定な場合があるため、最大3回までリトライする
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+            const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            const result = await response.json();
 
-    const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    const result = await response.json();
+            if (!response.ok || !result.candidates?.[0]?.content?.parts?.[0]?.text) {
+                console.error(`Gemini API Error (Attempt ${attempt}):`, JSON.stringify(result, null, 2));
+                lastError = new Error("AIによるテーブル構成の生成に失敗しました。APIからの応答がありません。");
+                await new Promise(res => setTimeout(res, 1000)); // 1秒待ってリトライ
+                continue;
+            }
+            
+            let jsonText = result.candidates[0].content.parts[0].text;
 
-    if (!response.ok || !result.candidates?.[0]?.content?.parts?.[0]?.text) {
-        console.error("Gemini API Error:", JSON.stringify(result, null, 2));
-        throw new Error("AIによるテーブル構成の生成に失敗しました。APIエラーを確認してください。");
+            // AIが稀に返すマークダウン形式をクリーンアップ
+            const jsonMatch = jsonText.match(/```json\s*([\s\S]*?)\s*```|({[\s\S]*})/);
+            if (jsonMatch) {
+                 jsonText = jsonMatch[1] || jsonMatch[2];
+            }
+            
+            // JSONとしてパースを試みる
+            return JSON.parse(jsonText); // 成功したら即座に結果を返す
+
+        } catch (e) {
+            console.error(`Attempt ${attempt} failed:`, e);
+            lastError = e;
+            await new Promise(res => setTimeout(res, 1000)); // 1秒待ってリトライ
+        }
     }
     
-    // AIからの応答を整形する処理を追加
-    let jsonText = result.candidates[0].content.parts[0].text;
-    const jsonMatch = jsonText.match(/```json\s*([\s\S]*?)\s*```|({[\s\S]*})/);
-    if (!jsonMatch) {
-        console.error("AIの応答から有効なJSONを見つけられませんでした:", jsonText);
-        throw new Error("AIが有効なJSON形式で応答しませんでした。");
-    }
-    jsonText = jsonMatch[1] || jsonMatch[2];
-
-    try {
-        return JSON.parse(jsonText);
-    } catch (e) {
-        console.error("整形後のJSONの解析に失敗しました:", jsonText, e);
-        throw new Error("AIが返したJSONデータの解析に失敗しました。");
-    }
+    // 3回試行しても失敗した場合、最後のエラーを投げる
+    console.error("すべてのリトライに失敗しました。");
+    throw new Error(`AIの応答処理に失敗しました: ${lastError.message}`);
 }
 
 
