@@ -175,7 +175,7 @@ async function handleApiPost({ request, env }) {
  * フロントエンドのHTML UIを生成する関数（完全改善版）
  */
 function serveHtml() {
-    const html = `
+    const html = '
     <!DOCTYPE html>
     <html lang="ja">
     <head>
