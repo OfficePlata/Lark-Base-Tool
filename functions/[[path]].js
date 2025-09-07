@@ -1,5 +1,4 @@
 // Lark APIのベースURL
-// 最終バージョン
 const LARK_API_URL = 'https://open.larksuite.com/open-apis';
 
 /**
@@ -192,9 +191,19 @@ async function generateSchemaFromAI(userPrompt, apiKey) {
 あなたの応答は必ず \`{\` から始まり、 \`}\` で終わる単一のJSONオブジェクトでなければなりません。
 解説、挨拶、\`\`\`json\`\`\`マークダウンなど、JSON以外のテキストは絶対に含めないでください。`;
 
+    // AIへの指示をより具体的にする
+    const enhancedUserPrompt = `
+以下のユーザー要望を詳細に分析し、最も適切と考えられるLark Baseのテーブル構造を設計してください。
+特に、フィールドのデータ型はLark Baseで利用可能なものを的確に選択し、選択肢が必要なフィールドには具体的な選択肢を提案してください。
+
+---
+ユーザー要望: "${userPrompt}"
+---
+`;
+
     const payload = {
         "system_instruction": { "parts": { "text": systemPrompt } },
-        "contents": [{ "parts": [{ "text": `以下のユーザー要望を満たすLark Baseの設計をJSONで生成してください: "${userPrompt}"` }] }],
+        "contents": [{ "parts": [{ "text": enhancedUserPrompt }] }],
         "generationConfig": {
             "response_mime_type": "application/json",
             "response_schema": {
@@ -212,7 +221,7 @@ async function generateSchemaFromAI(userPrompt, apiKey) {
 
             if (!response.ok || !result.candidates?.[0]?.content?.parts?.[0]?.text) {
                 console.error(`Gemini API Error (Attempt ${attempt}):`, JSON.stringify(result, null, 2));
-                lastError = new Error("AIによるテーブル構成の生成に失敗しました。APIからの応答がありません。");
+                lastError = new Error(`AIによるテーブル構成の生成に失敗しました。APIからの応答がありません。(試行 ${attempt}/3)`);
                 await new Promise(res => setTimeout(res, 1000 * attempt)); // リトライ間隔を延長
                 continue;
             }
@@ -221,7 +230,7 @@ async function generateSchemaFromAI(userPrompt, apiKey) {
             let jsonText = null;
 
             // Strategy 1: Find JSON within markdown ```json ... ```
-            const jsonMatch = rawText.match(/```json\s*([\s\S]*?)\s*```/);
+            const jsonMatch = rawText.match(/```json\s*([\sS]*?)\s*```/);
             if (jsonMatch && jsonMatch[1]) {
                 jsonText = jsonMatch[1];
             } else {
@@ -234,7 +243,7 @@ async function generateSchemaFromAI(userPrompt, apiKey) {
             }
             
             if (!jsonText) {
-                 throw new Error("AIの応答から有効なJSONオブジェクトを見つけられませんでした。");
+                 throw new Error(`AIの応答から有効なJSONオブジェクトを見つけられませんでした。(試行 ${attempt}/3)`);
             }
             
             // JSONとしてパースを試みる
