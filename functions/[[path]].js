@@ -219,7 +219,7 @@ async function generateSchemaFromAI(userPrompt, apiKey) {
             let rawText = result.candidates[0].content.parts[0].text;
             let jsonText = null;
 
-            // Strategy 1: Find JSON within markdown ```json ... ```
+            
             const jsonMatch = rawText.match(/```json\s*([\s\S]*?)\s*```/);
             if (jsonMatch && jsonMatch[1]) {
                 jsonText = jsonMatch[1];
